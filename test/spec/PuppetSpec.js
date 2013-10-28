@@ -137,6 +137,91 @@ describe("Puppet", function () {
         expect(patchSpy).toHaveBeenCalledWith('[{"op":"replace","path":"/hello","value":"cosmos"}]');
       });
     });
+
+    it("should send only one request to server when detecting a change", function () {
+
+      //init Puppet
+      var model = {
+        items: [
+          {
+            title$: 'Task 1',
+            completed$: false,
+            remove$: null
+          },
+          {
+            title$: 'Task 2',
+            completed$: true,
+            remove$: null
+          }
+        ]
+      };
+
+      this.puppet = new Puppet(window.location.href);
+
+      expect(this.puppet.obj).toBeNull();
+
+      this.server.respond(JSON.stringify(model));
+
+      expect(this.puppet.obj).toEqual(jasmine.any(Object));
+
+
+
+
+      //Make a change
+      this.puppet.obj.items[0].remove$ = null;
+
+      this.puppet.sendLocalChange(); //force to generate patches synchronously
+
+      expect(this.puppet.obj.items.length).toEqual(2);
+
+      var serverResponseSpy = jasmine.createSpy('serverResponseSpy').andCallThrough();
+      serverResponseSpy.plan = function (request) {
+        var responseOnChange = [
+          {
+            "op": "remove",
+            "path": "/items/1"
+          },
+          {
+            "op": "replace",
+            "path": "/items/0/completed$",
+            "value": true
+          },
+          {
+            "op": "replace",
+            "path": "/items/0/title$",
+            "value": "Test 2"
+          }
+        ];
+
+        request.respond(200, {'Content-type' : 'application/json-patch+json'}, JSON.stringify(responseOnChange));
+      }
+
+      this.server.respond(serverResponseSpy);
+
+      var request = serverResponseSpy.calls[0].args[0];
+
+      expect(this.puppet.obj.items.length).toEqual(1);
+      expect(JSON.parse(request.requestBody)).toEqual([{ op : 'replace', path : '/items/0/remove$', value : null }]);
+
+      serverResponseSpy.reset();
+
+
+
+
+
+      //Check if no other changes has been detected, therefore no other requests have been sent
+      this.server.autoRespond = true;
+
+      waits(100);
+
+      runs(function () {
+        expect(serverResponseSpy).not.toHaveBeenCalled();
+      });
+
+
+
+    });
+
   });
 
   describe('Queue', function () {
@@ -252,4 +337,5 @@ describe("Puppet", function () {
       });
     });
   });
+
 });
